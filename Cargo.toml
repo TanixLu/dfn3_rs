@@ -1,0 +1,15 @@
+[package]
+name = "dfn3_rs"
+version = "0.1.0"
+edition = "2024"
+description = "Allocation-free real-time DeepFilterNet3 speech enhancement"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+include = ["src/**", "weights/**", "Cargo.toml", "README.md", "NOTICE", "LICENSE-*"]
+
+[dependencies]
+realfft = "3.4"
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
