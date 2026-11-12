@@ -22,7 +22,7 @@ denoiser.set_attenuation_limit(12.0);
 denoiser.process(&input, &mut output);
 
 // Adjust strength between frames using the same model instance.
-denoiser.set_attenuation_limit(24.0);
+denoiser.set_attenuation_limit_smooth(24.0, std::time::Duration::from_millis(20));
 denoiser.process(&input, &mut output);
 ```
 
@@ -30,12 +30,31 @@ denoiser.process(&input, &mut output);
 delayed dry audio; larger magnitudes give stronger suppression; 100 dB or more
 disables the limit (the default). Pass finite values and call the setter between
 frames on the processing thread. Updates take effect on the next processing
-call and preserve neural history, overlap-add state, and latency. The network
-continues processing at 0 dB, so increasing strength requires no restart or warm-up.
+call. `set_attenuation_limit_smooth(db, duration)` interpolates the linear mixture
+coefficient once per output sample, not once per 10 ms processing block. Zero
+duration sets immediately; repeated targets do not restart a transition. New
+targets continue from the current coefficient. Both setters require finite dB.
+
+The library mixes full enhancement with a sample-aligned delayed copy of its
+input, using one IFFT. At fixed strength this is mathematically equivalent to
+the original frequency-domain attenuation blend, up to FFT rounding. At zero dB
+the output is exactly delayed input, including very quiet audio.
+
+Stable zero dB skips FFT and neural processing. Exact digital silence also sleeps
+the model after six processed zero frames drain its analysis, deep-filter taps
+and synthesis overlap. Low-power nonzero audio is never treated as digital
+silence. The dry delay line and attenuation envelope advance on every call,
+including while asleep, so the algorithmic delay never changes.
+
+When nonzero input and enabled attenuation resume, model state is rebuilt from
+new input over 30 ms, with delayed dry audio returned during warm-up. Enhancement
+then fades in over 20 ms. Recurrent history is intentionally discarded on sleep;
+resumed enhancement is not identical to uninterrupted inference. No extra audio
+latency is introduced. The reported local SNR is -15 dB while inference is skipped.
 
 `process_frame(&mut frame)` provides in-place processing. Both processing APIs
-return the local SNR estimate. `reset()` starts an unrelated stream and retains
-parameter settings. `set_thresholds(min, max_erb, max_df)` controls stage skipping;
+return the local SNR estimate. `reset()` starts an unrelated stream, retains
+thresholds and snaps attenuation to its configured target. `set_thresholds(min, max_erb, max_df)` controls stage skipping;
 defaults are -10, 30, and 20 dB.
 
 Audio I/O, resampling, channel routing, gain, limiting, and input buffering belong
@@ -48,8 +67,8 @@ Build and check with `cargo build --release`, `cargo clippy --all-targets -- -D 
 and `cargo test --release`. `realfft` is the only direct dependency; FFT plans and
 scratch buffers are allocated during construction. Construct, warm up, and reset
 the denoiser before starting real-time processing. To warm all neural stages,
-temporarily set thresholds to -100, 100, 100, process a few zero frames, reset,
-and restore the intended thresholds.
+temporarily set thresholds to -100, 100, 100, process a few low-level nonzero
+frames, reset, and restore the intended thresholds.
 
 MIT OR Apache-2.0. See [NOTICE](NOTICE), [LICENSE-MIT](LICENSE-MIT), and
 [LICENSE-APACHE](LICENSE-APACHE) for model provenance and attribution.
