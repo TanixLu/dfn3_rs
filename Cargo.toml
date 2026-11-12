@@ -5,7 +5,9 @@ edition = "2024"
 description = "Allocation-free real-time DeepFilterNet3 speech enhancement"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
-include = ["src/**", "weights/**", "Cargo.toml", "README.md", "NOTICE", "LICENSE-*"]
+repository = "https://github.com/TanixLu/dfn3_rs"
+keywords = ["audio", "speech", "denoise", "deepfilternet", "simd"]
+categories = ["multimedia::audio"]
 
 [dependencies]
 realfft = "3.4"
