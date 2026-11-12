@@ -2,7 +2,7 @@
 //! `[F][C]` with 64 contiguous channels, so DFN3's permutes/flattens are free.
 
 use crate::simd::{Simd, sigmoid};
-use crate::weights::{Grouped, Gru, Mat, Reader};
+use crate::weights::{Grouped, Gru, Mat, Model, Reader};
 
 const C: usize = 64;
 pub(crate) const NB_ERB: usize = 32;
@@ -46,8 +46,8 @@ struct Weights {
 }
 
 impl Weights {
-    fn new() -> Self {
-        let mut r = Reader::new();
+    fn new(model: Model) -> Self {
+        let mut r = Reader::new(model);
         let pw = |r: &mut Reader, taps| Pointwise {
             taps: r.take(taps * C),
             mat: r.mat(C, C),
@@ -165,10 +165,10 @@ fn pathway(p: &Pathway, x: &[f32], add: &mut [f32]) {
 }
 
 impl Network {
-    pub fn new() -> Self {
+    pub fn new(model: Model) -> Self {
         Self {
             simd: Simd::new(),
-            w: Weights::new(),
+            w: Weights::new(model),
             erb_hist: [[0.0; NB_ERB + 2]; 3],
             spec_hist: [[[0.0; NB_DF + 2]; 2]; 3],
             h_enc: [0.0; 256],

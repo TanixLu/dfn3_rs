@@ -1,13 +1,65 @@
-//! Embedded DFN3 weights: FP32 encoder and FP16 decoder matrices.
-//! The blob lives in the image's read-only data and is shared by all instances.
+//! Shared DFN3 weights: FP32 encoder and FP16 decoder matrices.
 
 #[cfg(not(target_endian = "little"))]
 compile_error!("dfn3_rs weights require little-endian storage");
 
+/// Size of the packed model, including tensor alignment padding.
+pub const WEIGHTS_SIZE: usize = 5_260_224;
+
+#[cfg(feature = "embedded-model")]
 #[repr(C, align(64))]
 struct Aligned<T: ?Sized>(T);
 
-static BLOB: &Aligned<[u8]> = &Aligned(*include_bytes!("../weights/dfn3.bin"));
+// Put the bytes themselves, rather than a pointer, in a discoverable PE section.
+#[cfg(feature = "embedded-model")]
+#[cfg_attr(target_os = "windows", unsafe(link_section = ".dfn3"))]
+static BLOB: Aligned<[u8; WEIGHTS_SIZE]> = Aligned(*include_bytes!("../weights/dfn3.bin"));
+
+/// A validated view of packed weights, shared by any number of denoisers.
+/// External storage must remain alive for the lifetime of the process.
+#[derive(Clone, Copy, Debug)]
+pub struct Model {
+    bytes: &'static [u8],
+}
+
+impl Model {
+    /// Borrow the library's embedded model without allocating.
+    #[cfg(feature = "embedded-model")]
+    pub fn embedded() -> Self {
+        Self { bytes: &BLOB.0 }
+    }
+
+    /// Borrow external weights without allocating or copying.
+    /// The bytes must use this library's packed tensor layout and little-endian
+    /// representation. Length and 64-byte base alignment are checked here.
+    pub fn from_bytes(bytes: &'static [u8]) -> Result<Self, ModelError> {
+        if bytes.len() != WEIGHTS_SIZE {
+            return Err(ModelError::Size);
+        }
+        if !(bytes.as_ptr() as usize).is_multiple_of(64) {
+            return Err(ModelError::Alignment);
+        }
+        Ok(Self { bytes })
+    }
+}
+
+/// External weights have the wrong size or base alignment.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ModelError {
+    Size,
+    Alignment,
+}
+
+impl std::fmt::Display for ModelError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Size => "weight blob size mismatch",
+            Self::Alignment => "weight blob must be aligned to 64 bytes",
+        })
+    }
+}
+
+impl std::error::Error for ModelError {}
 
 #[derive(Clone, Copy)]
 pub(crate) enum Data {
@@ -84,9 +136,9 @@ pub(crate) struct Reader {
 }
 
 impl Reader {
-    pub fn new() -> Self {
+    pub fn new(model: Model) -> Self {
         Self {
-            bytes: &BLOB.0,
+            bytes: model.bytes,
             decoder: false,
         }
     }
@@ -95,7 +147,7 @@ impl Reader {
         let size = len * std::mem::size_of::<T>();
         let (head, rest) = self.bytes.split_at(size.next_multiple_of(64));
         self.bytes = rest;
-        // SAFETY: embedded tensors start at 64-byte boundaries; T is f32 or u16,
+        // SAFETY: validated tensors start at 64-byte boundaries; T is f32 or u16,
         // both accept every bit pattern. The exporter writes little-endian data.
         unsafe { std::slice::from_raw_parts(head.as_ptr().cast(), len) }
     }

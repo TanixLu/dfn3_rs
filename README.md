@@ -26,6 +26,17 @@ denoiser.set_attenuation_limit_smooth(24.0, std::time::Duration::from_millis(20)
 denoiser.process(&input, &mut output);
 ```
 
+The default `embedded-model` feature includes the weights. Disable default
+features to build inference code without them. Use `Model::from_bytes` with
+process-lifetime storage containing exactly `WEIGHTS_SIZE` bytes, aligned to
+64 bytes, then pass the returned model to `Denoiser::with_model`. Validation
+checks size and alignment. The caller supplies weights in this version's packed
+tensor layout. Model handles are cheap, copyable views. Construction does not
+copy the weight bytes. `Denoiser::new`, `Default`, and `Model::embedded` are
+available only with `embedded-model` enabled.
+
+On Windows, the embedded weights are stored in the read-only `.dfn3` PE section.
+
 `set_attenuation_limit(db)` is the runtime `atten-lim-db` control. Zero gives
 delayed dry audio; larger magnitudes give stronger suppression; 100 dB or more
 disables the limit (the default). Pass finite values and call the setter between

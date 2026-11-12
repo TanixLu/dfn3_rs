@@ -1,13 +1,16 @@
 //! Real-time DeepFilterNet3 speech enhancement for 48 kHz mono audio.
 //!
 //! Construction allocates; [`Denoiser::process`] and [`Denoiser::reset`]
-//! perform no heap allocation, locking, or I/O. Weights are embedded and shared.
+//! perform no heap allocation, locking, or I/O. Weights are shared and may be
+//! embedded (the default) or supplied externally through [`Model`].
 //!
 //! ```
+//! # #[cfg(feature = "embedded-model")] {
 //! let mut denoiser = dfn3_rs::Denoiser::new();
 //! let input = [0.0_f32; dfn3_rs::FRAME_SIZE];
 //! let mut output = [0.0_f32; dfn3_rs::FRAME_SIZE];
 //! let lsnr = denoiser.process(&input, &mut output);
+//! # }
 //! ```
 
 #![deny(unsafe_op_in_unsafe_fn)]
@@ -17,6 +20,8 @@ mod net;
 mod ramp;
 mod simd;
 mod weights;
+
+pub use weights::{Model, ModelError, WEIGHTS_SIZE};
 
 use dsp::{BINS, Features, HOP, Stft};
 use net::{DF_ORDER, NB_DF, NB_ERB, Network};
@@ -60,6 +65,7 @@ pub struct Denoiser {
     zero_frames: usize,
 }
 
+#[cfg(feature = "embedded-model")]
 impl Default for Denoiser {
     fn default() -> Self {
         Self::new()
@@ -67,11 +73,18 @@ impl Default for Denoiser {
 }
 
 impl Denoiser {
+    /// Construct using the embedded model, outside the audio callback.
+    #[cfg(feature = "embedded-model")]
     pub fn new() -> Self {
+        Self::with_model(Model::embedded())
+    }
+
+    /// Construct using shared, validated weights, outside the audio callback.
+    pub fn with_model(model: Model) -> Self {
         Self {
             stft: Stft::new(),
             features: Features::new(),
-            net: Box::new(Network::new()),
+            net: Box::new(Network::new(model)),
             spectra: [[Complex32::default(); BINS]; DF_ORDER],
             enhanced: [Complex32::default(); BINS],
             gains: [0.0; NB_ERB],
